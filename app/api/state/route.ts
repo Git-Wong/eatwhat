@@ -1,4 +1,4 @@
-import { defaultKitchenState, normalizeKitchenState } from "@/lib/kitchen";
+import { defaultKitchenState, MENU_REVISION, normalizeKitchenState } from "@/lib/kitchen";
 import { getSupabase } from "@/lib/supabase-server";
 
 export async function GET() {
@@ -11,11 +11,24 @@ export async function GET() {
 
     if (error) throw error;
 
-    return Response.json(
-      data
-        ? { state: normalizeKitchenState(data.payload), updatedAt: data.updated_at }
-        : { state: defaultKitchenState },
-    );
+    if (!data) return Response.json({ state: defaultKitchenState });
+
+    const storedPayload = data.payload && typeof data.payload === "object" && !Array.isArray(data.payload)
+      ? data.payload as Record<string, unknown>
+      : {};
+    const state = normalizeKitchenState(data.payload);
+    let updatedAt = data.updated_at;
+
+    // Persist one-time menu resets so every device converges on the same new recipe set.
+    if (storedPayload.menuRevision !== MENU_REVISION) {
+      updatedAt = new Date().toISOString();
+      const { error: migrationError } = await getSupabase()
+        .from("kitchen_state")
+        .upsert({ id: 1, payload: state, updated_at: updatedAt }, { onConflict: "id" });
+      if (migrationError) throw migrationError;
+    }
+
+    return Response.json({ state, updatedAt });
   } catch (error) {
     return Response.json({ state: defaultKitchenState, warning: error instanceof Error ? error.message : "Storage unavailable" });
   }
