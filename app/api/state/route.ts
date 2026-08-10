@@ -1,3 +1,5 @@
+import { createClient } from "@supabase/supabase-js";
+
 const initialState = {
   ordered: [],
   wishlist: ["salmon"],
@@ -12,28 +14,36 @@ const initialState = {
   ],
 };
 
-function getDatabase() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error("DATABASE_URL is not configured");
-  return neon(databaseUrl);
-}
+function getSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !secretKey) {
+    throw new Error("SUPABASE_URL or SUPABASE_SECRET_KEY is not configured");
+  }
 
-async function ensureTable() {
-  const sql = getDatabase();
-  await sql`CREATE TABLE IF NOT EXISTS kitchen_state (
-    id INTEGER PRIMARY KEY,
-    payload TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
-  )`;
+  return createClient(url, secretKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
 
 export async function GET() {
   try {
-    await ensureTable();
-    const sql = getDatabase();
-    const rows = await sql`SELECT payload, updated_at FROM kitchen_state WHERE id = 1`;
-    const row = rows[0] as { payload: string; updated_at: string } | undefined;
-    return Response.json(row ? { state: JSON.parse(row.payload), updatedAt: row.updated_at } : { state: initialState });
+    const { data, error } = await getSupabase()
+      .from("kitchen_state")
+      .select("payload, updated_at")
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return Response.json(
+      data
+        ? { state: data.payload, updatedAt: data.updated_at }
+        : { state: initialState },
+    );
   } catch (error) {
     return Response.json({ state: initialState, warning: error instanceof Error ? error.message : "Storage unavailable" });
   }
@@ -41,20 +51,22 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    await ensureTable();
     const payload = await request.json();
     const updatedAt = new Date().toISOString();
-    const sql = getDatabase();
-    await sql`INSERT INTO kitchen_state (id, payload, updated_at)
-      VALUES (1, ${JSON.stringify(payload)}, ${updatedAt})
-      ON CONFLICT (id) DO UPDATE
-      SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`;
+    const { error } = await getSupabase()
+      .from("kitchen_state")
+      .upsert(
+        { id: 1, payload, updated_at: updatedAt },
+        { onConflict: "id" },
+      );
+
+    if (error) throw error;
+
     return Response.json({ ok: true, updatedAt });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Unable to save" }, { status: 500 });
   }
 }
-import { neon } from "@neondatabase/serverless";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
