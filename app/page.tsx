@@ -1,61 +1,323 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  actorNames,
+  defaultKitchenState,
+  normalizeKitchenState,
+  type Actor,
+  type Dish,
+  type InventoryItem,
+  type KitchenState,
+} from "@/lib/kitchen";
 
 type Tab = "menu" | "wishlist" | "shopping" | "cook" | "inventory" | "stats";
-type Dish = { id:string; name:string; desc:string; emoji:string; tone:string; minutes:number; calories:number; protein:number; tags:string[]; cost:number; ingredients:{name:string;qty:string;category:string}[]; steps:string[] };
-type InventoryItem = { id:string; name:string; amount:string; category:string; daysLeft:number; icon:string };
-type KitchenState = { ordered:string[]; wishlist:string[]; confirmed:boolean; checkedShopping:string[]; completedSteps:string[]; inventory:InventoryItem[] };
+type ModalState = { kind: "detail" | "edit" | "create"; dishId?: string } | null;
 
-const dishes: Dish[] = [
-  { id:"tomato-egg",name:"番茄炒蛋",desc:"酸甜下饭 · 家庭常驻",emoji:"🍅",tone:"sunset",minutes:18,calories:320,protein:18,tags:["快手","下饭"],cost:6.4,ingredients:[{name:"番茄",qty:"3 个",category:"蔬菜"},{name:"鸡蛋",qty:"4 个",category:"蛋奶"},{name:"小葱",qty:"2 根",category:"蔬菜"}],steps:["番茄切滚刀块，小葱切末，鸡蛋加一小撮盐打散","热锅下油，鸡蛋炒至八成熟后盛出","原锅炒番茄，加盐和少许糖，炒出汁","鸡蛋回锅翻匀 30 秒，撒葱花出锅"] },
-  { id:"beef",name:"黑椒牛肉",desc:"嫩滑多汁 · 彩椒爽脆",emoji:"🥩",tone:"pepper",minutes:28,calories:460,protein:35,tags:["高蛋白","人气"],cost:14.8,ingredients:[{name:"牛里脊",qty:"300 g",category:"肉类"},{name:"彩椒",qty:"2 个",category:"蔬菜"},{name:"洋葱",qty:"半个",category:"蔬菜"}],steps:["牛肉逆纹切片，加生抽、淀粉和油抓匀腌 10 分钟","彩椒与洋葱切块，调好黑椒汁","大火滑炒牛肉至变色，立即盛出","炒香洋葱和彩椒，牛肉回锅淋汁翻匀"] },
-  { id:"salmon",name:"香煎三文鱼",desc:"柠檬黄油 · 外脆里嫩",emoji:"🐟",tone:"salmon",minutes:25,calories:510,protein:39,tags:["高蛋白","清淡"],cost:16.5,ingredients:[{name:"三文鱼",qty:"2 块",category:"海鲜"},{name:"柠檬",qty:"1 个",category:"水果"},{name:"芦笋",qty:"1 把",category:"蔬菜"}],steps:["三文鱼擦干，撒盐和黑胡椒静置 8 分钟","锅烧热后皮面朝下，中火煎 4 分钟","翻面煎 2–3 分钟，加入黄油和蒜瓣淋油","静置 2 分钟，挤柠檬汁，与芦笋装盘"] },
-  { id:"tofu",name:"家常豆腐煲",desc:"暖呼呼 · 一锅就够",emoji:"🥘",tone:"tofu",minutes:32,calories:390,protein:22,tags:["暖胃","素食"],cost:8.2,ingredients:[{name:"嫩豆腐",qty:"1 盒",category:"豆制品"},{name:"香菇",qty:"6 朵",category:"蔬菜"},{name:"青菜",qty:"1 把",category:"蔬菜"}],steps:["豆腐切块，香菇切片，青菜洗净","豆腐两面煎至微黄后盛出","炒香蒜末和香菇，加高汤与豆腐焖 8 分钟","放青菜，水淀粉薄勾芡后关火"] },
-  { id:"chicken",name:"葱油鸡腿",desc:"葱香浓郁 · 鲜嫩多汁",emoji:"🍗",tone:"chicken",minutes:35,calories:540,protein:42,tags:["高蛋白","下饭"],cost:10.6,ingredients:[{name:"去骨鸡腿",qty:"3 块",category:"肉类"},{name:"小葱",qty:"1 把",category:"蔬菜"},{name:"姜",qty:"1 块",category:"调味"}],steps:["鸡腿擦干，加盐腌 10 分钟","鸡皮朝下小火煎出油脂，翻面煎熟","鸡腿静置后切块装盘","葱姜末淋热油，加生抽调匀后浇在鸡肉上"] },
-  { id:"shrimp",name:"蒜香西兰花虾仁",desc:"清爽鲜甜 · 工作日晚餐",emoji:"🍤",tone:"garden",minutes:20,calories:350,protein:31,tags:["清淡","快手"],cost:12.3,ingredients:[{name:"虾仁",qty:"300 g",category:"海鲜"},{name:"西兰花",qty:"1 颗",category:"蔬菜"},{name:"蒜",qty:"4 瓣",category:"调味"}],steps:["虾仁擦干，加盐和黑胡椒腌 5 分钟","西兰花焯水 60 秒，捞出沥干","热锅炒香蒜末，虾仁炒至变色","加入西兰花和少许蚝油，大火翻匀出锅"] },
-];
+const nav: [Tab, string, string][] = [["menu","⌂","今日菜单"],["wishlist","♡","想吃清单"],["shopping","🧺","买菜清单"],["cook","♨","做饭 SOP"],["inventory","◫","厨房库存"],["stats","⌁","本月数据"]];
+const filters = ["全部","30分钟内","高蛋白","清淡","下饭"];
 
-const initialState:KitchenState={ordered:[],wishlist:["salmon"],confirmed:false,checkedShopping:[],completedSteps:[],inventory:[{id:"rice",name:"大米",amount:"1.8 kg",category:"主食",daysLeft:90,icon:"🍚"},{id:"eggs",name:"鸡蛋",amount:"8 个",category:"蛋奶",daysLeft:12,icon:"🥚"},{id:"spinach",name:"菠菜",amount:"1 把",category:"蔬菜",daysLeft:2,icon:"🥬"},{id:"garlic",name:"蒜",amount:"2 头",category:"调味",daysLeft:24,icon:"🧄"}]};
-const nav:[Tab,string,string][]=[["menu","⌂","今日菜单"],["wishlist","♡","想吃清单"],["shopping","🧺","买菜清单"],["cook","♨","做饭 SOP"],["inventory","◫","厨房库存"],["stats","⌁","本月数据"]];
-const filters=["全部","30分钟内","高蛋白","清淡","下饭"];
+function nowActivity(actor: Actor, action: string) {
+  return { id: crypto.randomUUID(), actor, action, at: new Date().toISOString() };
+}
 
-export default function Home(){
-  const [tab,setTab]=useState<Tab>("menu"); const [filter,setFilter]=useState("全部"); const [role,setRole]=useState<"wife"|"cook">("wife"); const [state,setState]=useState<KitchenState>(initialState); const [ready,setReady]=useState(false); const [saved,setSaved]=useState(true); const [storageReady,setStorageReady]=useState(true); const skipFirst=useRef(true);
-  useEffect(()=>{fetch("/api/state").then(async r=>{const data=await r.json();if(data.state)setState(data.state);setStorageReady(!data.warning);setReady(true)}).catch(()=>{setStorageReady(false);setReady(true)})},[]);
-  useEffect(()=>{if(!ready||skipFirst.current){skipFirst.current=false;return}setSaved(false);const timer=setTimeout(()=>fetch("/api/state",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(state)}).then(r=>{if(!r.ok)throw new Error("save failed");setStorageReady(true);setSaved(true)}).catch(()=>{setStorageReady(false);setSaved(false)}),450);return()=>clearTimeout(timer)},[state,ready]);
-  const chosen=state.ordered.map(id=>dishes.find(d=>d.id===id)).filter(Boolean) as Dish[];
-  const wanted=state.wishlist.map(id=>dishes.find(d=>d.id===id)).filter(Boolean) as Dish[];
-  const shopping=(()=>{const inventoryNames=new Set(state.inventory.map(i=>i.name));const map=new Map<string,{name:string;qty:string;category:string;forDish:string[]}>();chosen.forEach(d=>d.ingredients.forEach(item=>{if(inventoryNames.has(item.name))return;const current=map.get(item.name);if(current)current.forDish.push(d.name);else map.set(item.name,{...item,forDish:[d.name]})}));return [...map.values()]})();
-  const visible=dishes.filter(d=>filter==="全部"?true:filter==="30分钟内"?d.minutes<=30:d.tags.includes(filter));
-  const update=(patch:Partial<KitchenState>)=>setState(current=>({...current,...patch}));
-  const toggle=(key:"ordered"|"wishlist"|"checkedShopping"|"completedSteps",id:string)=>update({[key]:state[key].includes(id)?state[key].filter(item=>item!==id):[...state[key],id]});
-  const confirmOrder=()=>{update({confirmed:true,checkedShopping:[],completedSteps:[]});setRole("cook");setTab("shopping")};
-  const title={menu:"晚上想吃什么？",wishlist:"最近想吃这些",shopping:"今晚要买什么？",cook:"开火，按顺序来",inventory:"家里还有什么？",stats:"这个月吃得怎么样？"}[tab];
+function randomSelection(items: Dish[], count: number, previous: string[]) {
+  if (!items.length) return [];
+  const limit = Math.min(count, items.length);
+  let selected = items.slice(0, limit);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const shuffled = [...items];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[swap]] = [shuffled[swap], shuffled[index]];
+    }
+    selected = shuffled.slice(0, limit);
+    if (selected.map(item => item.id).join() !== previous.join()) break;
+  }
+  return selected.map(item => item.id);
+}
+
+export default function Home() {
+  const [tab,setTab] = useState<Tab>("menu");
+  const [filter,setFilter] = useState("全部");
+  const [role,setRole] = useState<Actor>("wife");
+  const [state,setState] = useState<KitchenState>(defaultKitchenState);
+  const [batchIds,setBatchIds] = useState<string[]>([]);
+  const [modal,setModal] = useState<ModalState>(null);
+  const [ready,setReady] = useState(false);
+  const [saved,setSaved] = useState(true);
+  const [storageReady,setStorageReady] = useState(true);
+  const [toast,setToast] = useState("");
+  const suppressNextSave = useRef(false);
+  const savedRef = useRef(true);
+  const serverUpdatedAt = useRef("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/state", { signal: controller.signal }).then(async response => {
+      const data = await response.json();
+      suppressNextSave.current = true;
+      if (data.state) setState(normalizeKitchenState(data.state));
+      serverUpdatedAt.current = data.updatedAt ?? "";
+      setStorageReady(!data.warning);
+      setReady(true);
+    }).catch(error => {
+      if (error.name !== "AbortError") {
+        setStorageReady(false);
+        setReady(true);
+      }
+    });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (suppressNextSave.current) {
+      suppressNextSave.current = false;
+      return;
+    }
+    setSaved(false);
+    savedRef.current = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetch("/api/state", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(state),
+        signal: controller.signal,
+      }).then(async response => {
+        if (!response.ok) throw new Error("save failed");
+        const data = await response.json();
+        serverUpdatedAt.current = data.updatedAt ?? serverUpdatedAt.current;
+        setStorageReady(true);
+        setSaved(true);
+        savedRef.current = true;
+      }).catch(error => {
+        if (error.name !== "AbortError") {
+          setStorageReady(false);
+          setSaved(false);
+          savedRef.current = false;
+        }
+      });
+    }, 450);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [state, ready]);
+
+  useEffect(() => {
+    if (!ready || !storageReady) return;
+    const pull = () => {
+      if (!savedRef.current || document.visibilityState === "hidden") return;
+      fetch("/api/state").then(response => response.json()).then(data => {
+        if (!data.updatedAt || data.updatedAt <= serverUpdatedAt.current) return;
+        suppressNextSave.current = true;
+        serverUpdatedAt.current = data.updatedAt;
+        setState(normalizeKitchenState(data.state));
+        setToast("已同步对方的最新修改");
+      }).catch(() => undefined);
+    };
+    const timer = window.setInterval(pull, 5000);
+    window.addEventListener("focus", pull);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", pull);
+    };
+  }, [ready, storageReady]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 2600);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const commit = useCallback((change: (current: KitchenState) => KitchenState, action?: string) => {
+    setState(current => {
+      const next = change(current);
+      return action ? { ...next, activity: [nowActivity(role, action), ...next.activity].slice(0, 30) } : next;
+    });
+  }, [role]);
+
+  const dishMap = useMemo(() => new Map(state.dishes.map(dish => [dish.id, dish])), [state.dishes]);
+  const chosen = state.ordered.flatMap(id => dishMap.get(id) ?? []);
+  const wanted = state.wishlist.flatMap(id => dishMap.get(id) ?? []);
+  const eligible = state.dishes.filter(dish => filter === "全部" ? true : filter === "30分钟内" ? dish.minutes <= 30 : dish.tags.includes(filter));
+  const visible = batchIds.length ? batchIds.flatMap(id => dishMap.get(id) ?? []).filter(dish => eligible.some(item => item.id === dish.id)) : eligible;
+  const shopping = useMemo(() => {
+    const inventoryNames = new Set(state.inventory.map(item => item.name));
+    const map = new Map<string,{name:string;qty:string;category:string;forDish:string[]}>();
+    chosen.forEach(dish => dish.ingredients.forEach(item => {
+      if (inventoryNames.has(item.name)) return;
+      const current = map.get(item.name);
+      if (current) current.forDish.push(dish.name);
+      else map.set(item.name,{...item,forDish:[dish.name]});
+    }));
+    return [...map.values()];
+  }, [chosen, state.inventory]);
+
+  const toggleList = (key: "ordered" | "wishlist" | "checkedShopping" | "completedSteps", id: string, label?: string) => {
+    commit(current => ({ ...current, [key]: current[key].includes(id) ? current[key].filter(item => item !== id) : [...current[key], id] }), label);
+  };
+  const toggleShopping = (name: string) => commit(current => {
+    const checked = current.checkedShopping.includes(name);
+    return {
+      ...current,
+      checkedShopping: checked ? current.checkedShopping.filter(item => item !== name) : [...current.checkedShopping, name],
+      shoppingActors: checked ? Object.fromEntries(Object.entries(current.shoppingActors).filter(([key]) => key !== name)) : { ...current.shoppingActors, [name]: role },
+    };
+  }, `${state.checkedShopping.includes(name) ? "取消勾选" : "买到了"}「${name}」`);
+  const confirmOrder = () => {
+    commit(current => ({ ...current, confirmed:true, checkedShopping:[], completedSteps:[], shoppingActors:{} }), "确认了今晚菜单");
+    setRole("cook");
+    setTab("shopping");
+  };
+  const saveDish = (dish: Dish, isNew: boolean) => {
+    commit(current => ({ ...current, dishes: isNew ? [dish, ...current.dishes] : current.dishes.map(item => item.id === dish.id ? dish : item) }), `${isNew ? "新增" : "更新"}了菜谱「${dish.name}」`);
+    setModal({ kind:"detail", dishId:dish.id });
+    setBatchIds([]);
+    setToast(isNew ? "新菜谱已加入菜单" : "菜谱已更新");
+  };
+  const deleteDish = (dish: Dish) => {
+    if (!window.confirm(`确定删除「${dish.name}」吗？`)) return;
+    commit(current => ({
+      ...current,
+      dishes: current.dishes.filter(item => item.id !== dish.id),
+      ordered: current.ordered.filter(id => id !== dish.id),
+      wishlist: current.wishlist.filter(id => id !== dish.id),
+      dishNotes: Object.fromEntries(Object.entries(current.dishNotes).filter(([id]) => id !== dish.id)),
+    }), `删除了菜谱「${dish.name}」`);
+    setBatchIds([]);
+    setModal(null);
+  };
+  const saveNote = (dish: Dish, text: string) => commit(current => ({
+    ...current,
+    dishNotes: text.trim() ? { ...current.dishNotes, [dish.id]: { text:text.trim(), author:role, updatedAt:new Date().toISOString() } } : Object.fromEntries(Object.entries(current.dishNotes).filter(([id]) => id !== dish.id)),
+  }), text.trim() ? `给「${dish.name}」留言：${text.trim()}` : `清除了「${dish.name}」的留言`);
+
+  const activeDish = modal?.dishId ? dishMap.get(modal.dishId) : undefined;
+  const title = {menu:"晚上想吃什么？",wishlist:"最近想吃这些",shopping:"今晚要买什么？",cook:"开火，按顺序来",inventory:"家里还有什么？",stats:"这个月吃得怎么样？"}[tab];
 
   return <main className="app-shell">
-    <header className="topbar"><button className="brand plain" onClick={()=>setTab("menu")}><span className="brand-mark">灶</span><span><b>今晚吃什么</b><small>我们的家庭厨房</small></span></button><div className="top-actions"><span className={saved&&storageReady?"save-state":"save-state saving"}>{!ready?"○ 连接中":!storageReady?"○ 数据库未连接":saved?"● 已同步":"○ 保存中"}</span><button className="role-pill" onClick={()=>setRole(role==="wife"?"cook":"wife")}>{role==="wife"?"♡ 老婆点菜中":"♨ 掌勺模式"}</button><button className="avatar" onClick={()=>setRole(role==="wife"?"cook":"wife")} aria-label="切换角色">{role==="wife"?"她":"我"}</button></div></header>
-    <div className="page-grid"><aside className="sidebar"><nav>{nav.map(([id,icon,label])=><button key={id} className={tab===id?"nav-item active":"nav-item"} onClick={()=>setTab(id)}><span>{icon}</span>{label}{id==="wishlist"&&<em>{state.wishlist.length}</em>}{id==="shopping"&&<em>{shopping.length}</em>}</button>)}<div className="nav-divider"/></nav><div className="fridge-note"><span>🧊</span><div><b>冰箱小提醒</b><p>菠菜还有 2 天到期</p></div></div></aside>
+    <header className="topbar">
+      <button className="brand plain" onClick={() => setTab("menu")}><span className="brand-mark">灶</span><span><b>今晚吃什么</b><small>我们的家庭厨房</small></span></button>
+      <div className="top-actions"><span className={saved&&storageReady?"save-state":"save-state saving"}>{!ready?"○ 连接中":!storageReady?"○ 仅本机预览":saved?"● 已同步":"○ 保存中"}</span><button className="role-pill" onClick={() => setRole(role==="wife"?"cook":"wife")}>{role==="wife"?"♡ 她在操作":"♨ 我在操作"} · 切换</button><button className="avatar" onClick={() => setRole(role==="wife"?"cook":"wife")} aria-label="切换操作人">{actorNames[role]}</button></div>
+    </header>
+    <div className="page-grid">
+      <aside className="sidebar"><nav>{nav.map(([id,icon,label]) => <button key={id} className={tab===id?"nav-item active":"nav-item"} onClick={() => setTab(id)}><span>{icon}</span>{label}{id==="wishlist"&&<em>{state.wishlist.length}</em>}{id==="shopping"&&<em>{shopping.length}</em>}</button>)}<div className="nav-divider"/></nav><CollaborationPanel activity={state.activity}/></aside>
       <section className="content">
         <div className="welcome-row"><div><p className="eyebrow">OUR HOME · TODAY</p><h1>{title}</h1><p className="lede">{tab==="menu"?"今天你只管点，剩下的交给我。":tab==="cook"?"备菜、开火、出锅，一个步骤都不乱。":"点菜、库存和预算，全部自动串起来。"}</p></div>{tab==="menu"&&<div className="weather-card"><span>☀</span><div><b>24°C</b><small>适合吃点清爽的</small></div></div>}</div>
 
-        {tab==="menu"&&<Menu dishes={visible} filter={filter} setFilter={setFilter} state={state} toggle={toggle} confirmOrder={confirmOrder}/>} 
-        {tab==="wishlist"&&<Wishlist dishes={wanted} moveToOrder={(id)=>{if(!state.ordered.includes(id))update({ordered:[...state.ordered,id]});}} remove={(id)=>toggle("wishlist",id)}/>} 
-        {tab==="shopping"&&<Shopping items={shopping} checked={state.checkedShopping} toggle={(id)=>toggle("checkedShopping",id)} onCook={()=>setTab("cook")} confirmed={state.confirmed}/>} 
-        {tab==="cook"&&<Cook chosen={chosen} completed={state.completedSteps} toggle={(id)=>toggle("completedSteps",id)}/>} 
-        {tab==="inventory"&&<Inventory items={state.inventory} remove={(id)=>update({inventory:state.inventory.filter(item=>item.id!==id)})} add={(item)=>update({inventory:[...state.inventory,item]})}/>} 
-        {tab==="stats"&&<Stats chosen={chosen}/>} 
+        {tab==="menu"&&<Menu dishes={visible} allDishes={dishMap} filter={filter} setFilter={value=>{setFilter(value);setBatchIds([])}} state={state} onOpen={dish => setModal({kind:"detail",dishId:dish.id})} onCreate={() => setModal({kind:"create"})} onShuffle={() => setBatchIds(previous => randomSelection(eligible,3,previous))} toggleOrder={dish => toggleList("ordered",dish.id,`${state.ordered.includes(dish.id)?"取消":"点了"}「${dish.name}」`)} toggleWish={dish => toggleList("wishlist",dish.id,`${state.wishlist.includes(dish.id)?"取消收藏":"收藏了"}「${dish.name}」`)} confirmOrder={confirmOrder}/>}
+        {tab==="wishlist"&&<Wishlist dishes={wanted} onOpen={dish => setModal({kind:"detail",dishId:dish.id})} moveToOrder={dish => commit(current => ({...current,ordered:current.ordered.includes(dish.id)?current.ordered:[...current.ordered,dish.id]}),`把「${dish.name}」加入今晚菜单`)} remove={dish => toggleList("wishlist",dish.id,`取消收藏「${dish.name}」`)}/>}
+        {tab==="shopping"&&<Shopping items={shopping} checked={state.checkedShopping} actors={state.shoppingActors} toggle={toggleShopping} onCook={() => setTab("cook")} confirmed={state.confirmed}/>}
+        {tab==="cook"&&<Cook chosen={chosen} completed={state.completedSteps} toggle={id => toggleList("completedSteps",id)}/>}
+        {tab==="inventory"&&<Inventory items={state.inventory} remove={id => commit(current => ({...current,inventory:current.inventory.filter(item=>item.id!==id)}),"更新了厨房库存")} add={item => commit(current => ({...current,inventory:[...current.inventory,item]}),`加入库存「${item.name}」`)}/>}
+        {tab==="stats"&&<Stats chosen={chosen}/>}
       </section>
     </div>
-    <nav className="mobile-nav">{nav.slice(0,5).map(([id,icon,label])=><button key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}><span>{icon}</span>{label.replace("今日","").replace("清单","")}</button>)}</nav>
-  </main>
+    <nav className="mobile-nav">{nav.slice(0,5).map(([id,icon,label]) => <button key={id} className={tab===id?"active":""} onClick={() => setTab(id)}><span>{icon}</span>{label.replace("今日","").replace("清单","")}</button>)}</nav>
+    {toast&&<div className="toast" role="status">✓ {toast}</div>}
+    {modal?.kind==="create"&&<RecipeEditor role={role} onClose={() => setModal(null)} onSave={dish => saveDish(dish,true)}/>}
+    {modal?.kind==="detail"&&activeDish&&<RecipeDetail dish={activeDish} note={state.dishNotes[activeDish.id]} onClose={() => setModal(null)} onEdit={() => setModal({kind:"edit",dishId:activeDish.id})} onDelete={() => deleteDish(activeDish)} onSaveNote={text => saveNote(activeDish,text)} ordered={state.ordered.includes(activeDish.id)} onOrder={() => toggleList("ordered",activeDish.id,`${state.ordered.includes(activeDish.id)?"取消":"点了"}「${activeDish.name}」`)}/>}
+    {modal?.kind==="edit"&&activeDish&&<RecipeEditor role={role} dish={activeDish} onClose={() => setModal({kind:"detail",dishId:activeDish.id})} onSave={dish => saveDish(dish,false)}/>}
+  </main>;
 }
 
-function Menu({dishes,filter,setFilter,state,toggle,confirmOrder}:{dishes:Dish[];filter:string;setFilter:(x:string)=>void;state:KitchenState;toggle:(key:"ordered"|"wishlist",id:string)=>void;confirmOrder:()=>void}){return <><div className="filter-row">{filters.map(item=><button key={item} className={filter===item?"filter active":"filter"} onClick={()=>setFilter(item)}>{item}</button>)}</div>{state.ordered.length>0&&<div className="order-banner"><div><span>✓</span><p><b>今晚已选 {state.ordered.length} 道菜</b><small>{state.ordered.map(id=>dishes.find(d=>d.id===id)?.name??id).join("、")}</small></p></div><button onClick={()=>document.getElementById("summary")?.scrollIntoView({behavior:"smooth"})}>去确认</button></div>}<div className="section-heading"><div><h2>今日推荐</h2><p>按家里库存和你们的口味挑好了</p></div><button className="text-button" onClick={()=>setFilter("全部")}>↻ 换一批</button></div><div className="dish-grid">{dishes.map(d=><DishCard key={d.id} dish={d} ordered={state.ordered.includes(d.id)} wished={state.wishlist.includes(d.id)} onOrder={()=>toggle("ordered",d.id)} onWish={()=>toggle("wishlist",d.id)}/>)}</div><section className="summary-card" id="summary"><div><p className="eyebrow">TONIGHT&apos;S ORDER</p><h2>{state.ordered.length?"今晚菜单已选好":"还没有点菜"}</h2><p>{state.ordered.length?"确认后自动合并食材，生成买菜清单与做饭顺序。":"从上面选一道想吃的菜吧。"}</p></div><div className="summary-dishes">{state.ordered.map(id=><span key={id}>{dishes.find(d=>d.id===id)?.emoji}</span>)}</div><button disabled={!state.ordered.length} onClick={confirmOrder}>{state.ordered.length?"确认今晚菜单 →":"等你点菜"}</button></section></>}
-function DishCard({dish,ordered,wished,onOrder,onWish}:{dish:Dish;ordered:boolean;wished:boolean;onOrder:()=>void;onWish:()=>void}){return <article className="dish-card"><div className={`dish-visual ${dish.tone}`}><span className="food-emoji">{dish.emoji}</span><div className="plate"/><button className={wished?"heart active":"heart"} aria-label={wished?`移除${dish.name}`:`收藏${dish.name}`} onClick={onWish}>{wished?"♥":"♡"}</button><span className="time">◷ {dish.minutes} 分钟</span></div><div className="dish-body"><div className="dish-title-row"><div><h3>{dish.name}</h3><p>{dish.desc}</p></div><span className="rating">★ 4.9</span></div><div className="nutrition"><span>{dish.calories} kcal</span><i/><span>蛋白质 {dish.protein}g</span></div><div className="tags">{dish.tags.map(tag=><span key={tag}>{tag}</span>)}</div><button className={ordered?"order-button ordered":"order-button"} onClick={onOrder}>{ordered?"✓ 已点这道":"+ 今晚吃这个"}</button></div></article>}
-function Empty({icon,title,text}:{icon:string;title:string;text:string}){return <div className="empty"><span>{icon}</span><h2>{title}</h2><p>{text}</p></div>}
-function Wishlist({dishes,moveToOrder,remove}:{dishes:Dish[];moveToOrder:(id:string)=>void;remove:(id:string)=>void}){return dishes.length?<div className="list-stack top-space">{dishes.map(d=><article className="wish-row" key={d.id}><div className={`mini-visual ${d.tone}`}>{d.emoji}</div><div><h3>{d.name}</h3><p>{d.desc} · {d.minutes} 分钟</p></div><div className="row-actions"><button className="ghost" onClick={()=>remove(d.id)}>移除</button><button className="primary" onClick={()=>moveToOrder(d.id)}>今晚吃</button></div></article>)}</div>:<Empty icon="♡" title="想吃清单还是空的" text="看到喜欢的菜，点一下爱心就会留在这里。"/>}
-function Shopping({items,checked,toggle,onCook,confirmed}:{items:{name:string;qty:string;category:string;forDish:string[]}[];checked:string[];toggle:(id:string)=>void;onCook:()=>void;confirmed:boolean}){if(!confirmed)return <Empty icon="🧺" title="先确认今晚菜单" text="确认后，会自动扣除家中库存并合并需要购买的食材。"/>;const done=items.filter(i=>checked.includes(i.name)).length;return <><div className="progress-card top-space"><div><b>{done}/{items.length} 已买</b><span>预计 $ {items.reduce((sum)=>sum+3.8,0).toFixed(2)}</span></div><div className="progress"><i style={{width:`${items.length?done/items.length*100:100}%`}}/></div></div><div className="shopping-grid">{["肉类","海鲜","蔬菜","水果","蛋奶","豆制品","调味"].map(cat=>{const group=items.filter(i=>i.category===cat);return group.length?<section className="shopping-group" key={cat}><h3>{cat}</h3>{group.map(item=><label className={checked.includes(item.name)?"check-row checked":"check-row"} key={item.name}><input type="checkbox" checked={checked.includes(item.name)} onChange={()=>toggle(item.name)}/><span className="fake-check">✓</span><span><b>{item.name}</b><small>{item.forDish.join("、")}</small></span><em>{item.qty}</em></label>)}</section>:null})}</div><button className="wide-action" onClick={onCook}>东西齐了，开始做饭 →</button></>}
-function Cook({chosen,completed,toggle}:{chosen:Dish[];completed:string[];toggle:(id:string)=>void}){if(!chosen.length)return <Empty icon="♨" title="今晚还没选菜" text="先去菜单点菜，SOP 会按火候和时间自动排好。"/>;const total=chosen.reduce((s,d)=>s+d.steps.length,0);return <><div className="cook-overview top-space"><div><span>⏱</span><p><b>预计 {Math.max(...chosen.map(d=>d.minutes))+8} 分钟</b><small>{chosen.length} 道菜 · 先备菜，再集中开火</small></p></div><strong>{completed.length}/{total}</strong></div><div className="timeline">{chosen.map((d,dishIndex)=><section className="cook-dish" key={d.id}><div className={`cook-icon ${d.tone}`}>{d.emoji}</div><div className="cook-content"><h2>{d.name}<span>{d.minutes} 分钟</span></h2>{d.steps.map((step,index)=>{const number=chosen.slice(0,dishIndex).reduce((sum,item)=>sum+item.steps.length,0)+index+1;const id=`${d.id}-${index}`;return <label className={completed.includes(id)?"step done":"step"} key={id}><input type="checkbox" checked={completed.includes(id)} onChange={()=>toggle(id)}/><span>{number}</span><p>{step}</p></label>})}</div></section>)}</div>{completed.length===total&&<div className="celebrate">🎉 <b>全部完成，开饭啦！</b></div>}</>}
-function Inventory({items,remove,add}:{items:InventoryItem[];remove:(id:string)=>void;add:(item:InventoryItem)=>void}){const [adding,setAdding]=useState(false);const [name,setName]=useState("");const [amount,setAmount]=useState("");const submit=()=>{if(!name.trim())return;add({id:`custom-${Date.now()}`,name:name.trim(),amount:amount.trim()||"1 份",category:"其他",daysLeft:7,icon:"🥕"});setName("");setAmount("");setAdding(false)};return <><div className="inventory-summary top-space"><span><b>{items.length}</b> 种食材</span><span><b>{items.filter(i=>i.daysLeft<=3).length}</b> 项快到期</span><button onClick={()=>setAdding(!adding)}>{adding?"收起":"＋ 添加食材"}</button></div>{adding&&<div className="add-inventory"><input aria-label="食材名称" placeholder="食材名称，例如：胡萝卜" value={name} onChange={e=>setName(e.target.value)}/><input aria-label="食材数量" placeholder="数量，例如：3 根" value={amount} onChange={e=>setAmount(e.target.value)}/><button onClick={submit} disabled={!name.trim()}>加入库存</button></div>}<div className="inventory-grid">{items.map(item=><article className="inventory-card" key={item.id}><span>{item.icon}</span><div><h3>{item.name}</h3><p>{item.amount} · {item.category}</p><small className={item.daysLeft<=3?"urgent":""}>{item.daysLeft<=3?`⚠ ${item.daysLeft} 天内吃掉`:`保质期约 ${item.daysLeft} 天`}</small></div><button aria-label={`删除${item.name}`} onClick={()=>remove(item.id)}>×</button></article>)}</div><div className="inventory-tip"><span>💡</span><p><b>今晚优先建议</b>菠菜快到期了，下次推荐会优先出现菠菜相关菜品。</p></div></>}
-function Stats({chosen}:{chosen:Dish[]}){const calories=chosen.reduce((s,d)=>s+d.calories,0);const protein=chosen.reduce((s,d)=>s+d.protein,0);const cost=chosen.reduce((s,d)=>s+d.cost,0);return <><div className="stat-grid top-space"><article><span>本月做饭</span><b>12 <small>顿</small></b><p>比上月多 3 顿</p></article><article><span>本月食材</span><b>$186</b><p>预算 $260 · 剩余 $74</p></article><article><span>减少浪费</span><b>7 <small>份</small></b><p>及时吃掉快到期食材</p></article></div><section className="budget-card"><div><p className="eyebrow">MONTHLY BUDGET</p><h2>八月厨房预算</h2><p>目前使用 72%，按这个节奏刚刚好。</p></div><div className="budget-ring"><span><b>72%</b><small>$186 / $260</small></span></div></section><section className="nutrition-card"><div><h2>今晚营养预估</h2><p>按两人份计算，仅供日常参考</p></div><div className="macro"><span><b>{calories||0}</b> kcal</span><span><b>{protein||0}g</b> 蛋白质</span><span><b>${cost.toFixed(0)}</b> 预计成本</span></div></section></>}
+function CollaborationPanel({activity}:{activity:KitchenState["activity"]}) {
+  const latest = activity[0];
+  return <div className="collab-panel"><div className="collab-avatars"><span>她</span><span>我</span><i>●</i></div><b>两个人的厨房</b>{latest?<p><strong>{actorNames[latest.actor]}</strong>{latest.action}<small>{formatRelative(latest.at)}</small></p>:<p>点菜、留言和买菜进度会同步显示。</p>}</div>;
+}
+
+function Menu({dishes,allDishes,filter,setFilter,state,onOpen,onCreate,onShuffle,toggleOrder,toggleWish,confirmOrder}:{dishes:Dish[];allDishes:Map<string,Dish>;filter:string;setFilter:(value:string)=>void;state:KitchenState;onOpen:(dish:Dish)=>void;onCreate:()=>void;onShuffle:()=>void;toggleOrder:(dish:Dish)=>void;toggleWish:(dish:Dish)=>void;confirmOrder:()=>void}) {
+  return <><div className="filter-row">{filters.map(item=><button key={item} className={filter===item?"filter active":"filter"} onClick={()=>setFilter(item)}>{item}</button>)}</div>{state.ordered.length>0&&<div className="order-banner"><div><span>✓</span><p><b>今晚已选 {state.ordered.length} 道菜</b><small>{state.ordered.map(id=>allDishes.get(id)?.name??id).join("、")}</small></p></div><button onClick={()=>document.getElementById("summary")?.scrollIntoView({behavior:"smooth"})}>去确认</button></div>}<div className="section-heading"><div><h2>今日推荐</h2><p>共 {state.dishes.length} 道家庭菜谱</p></div><div className="heading-actions"><button className="text-button" onClick={onShuffle}>↻ 随机换一批</button><button className="add-recipe-button" onClick={onCreate}>＋ 新菜谱</button></div></div>{dishes.length?<div className="dish-grid">{dishes.map(dish=><DishCard key={dish.id} dish={dish} ordered={state.ordered.includes(dish.id)} wished={state.wishlist.includes(dish.id)} onOpen={()=>onOpen(dish)} onOrder={()=>toggleOrder(dish)} onWish={()=>toggleWish(dish)}/>)}</div>:<Empty icon="🍽" title="这个分类还没有菜" text="添加一道新菜谱，或者切换其他筛选条件。"/>}<section className="summary-card" id="summary"><div><p className="eyebrow">TONIGHT&apos;S ORDER</p><h2>{state.ordered.length?"今晚菜单已选好":"还没有点菜"}</h2><p>{state.ordered.length?"确认后自动合并食材，生成买菜清单与做饭顺序。":"从上面选一道想吃的菜吧。"}</p></div><div className="summary-dishes">{state.ordered.map(id=><span key={id}>{allDishes.get(id)?.emoji}</span>)}</div><button disabled={!state.ordered.length} onClick={confirmOrder}>{state.ordered.length?"确认今晚菜单 →":"等你点菜"}</button></section></>;
+}
+
+function DishVisual({dish,className="dish-visual"}:{dish:Dish;className?:string}) {
+  return <div className={`${className} ${dish.tone}`}>{dish.imageUrl?<Image src={dish.imageUrl} alt={dish.name} fill sizes="(max-width: 720px) 50vw, 340px" className="dish-photo"/>:<><span className="food-emoji">{dish.emoji}</span><div className="plate"/></>}</div>;
+}
+
+function DishCard({dish,ordered,wished,onOrder,onWish,onOpen}:{dish:Dish;ordered:boolean;wished:boolean;onOrder:()=>void;onWish:()=>void;onOpen:()=>void}) {
+  return <article className="dish-card"><div className="dish-visual-wrap"><button className="visual-button" onClick={onOpen} aria-label={`查看${dish.name}详情`}><DishVisual dish={dish}/></button><button className={wished?"heart active":"heart"} aria-label={wished?`移除${dish.name}`:`收藏${dish.name}`} onClick={onWish}>{wished?"♥":"♡"}</button><span className="time">◷ {dish.minutes} 分钟</span></div><div className="dish-body"><button className="dish-title-button" onClick={onOpen}><div className="dish-title-row"><div><h3>{dish.name}</h3><p>{dish.desc}</p></div><span className="rating">详情 ›</span></div></button><div className="nutrition"><span>{dish.calories} kcal</span><i/><span>蛋白质 {dish.protein}g</span></div><div className="tags">{dish.tags.map(tag=><span key={tag}>{tag}</span>)}</div><button className={ordered?"order-button ordered":"order-button"} onClick={onOrder}>{ordered?"✓ 已点这道":"+ 今晚吃这个"}</button></div></article>;
+}
+
+function RecipeDetail({dish,note,onClose,onEdit,onDelete,onSaveNote,ordered,onOrder}:{dish:Dish;note:KitchenState["dishNotes"][string];onClose:()=>void;onEdit:()=>void;onDelete:()=>void;onSaveNote:(text:string)=>void;ordered:boolean;onOrder:()=>void}) {
+  const [noteText,setNoteText] = useState(note?.text ?? "");
+  return <div className="modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose()}}><section className="recipe-modal detail-modal" role="dialog" aria-modal="true" aria-labelledby="recipe-title"><button className="modal-close" onClick={onClose} aria-label="关闭">×</button><DishVisual dish={dish} className="detail-hero"/><div className="detail-content"><p className="eyebrow">FAMILY RECIPE</p><div className="detail-title"><div><h2 id="recipe-title">{dish.name}</h2><p>{dish.desc}</p></div><button className="ghost" onClick={onEdit}>编辑菜谱</button></div><div className="detail-metrics"><span><b>{dish.minutes}</b> 分钟</span><span><b>{dish.calories}</b> kcal</span><span><b>{dish.protein}g</b> 蛋白质</span><span><b>${dish.cost}</b> 预计成本</span></div><div className="detail-columns"><div><h3>准备食材</h3>{dish.ingredients.map((item,index)=><div className="ingredient-row" key={`${item.name}-${index}`}><span>{item.name}<small>{item.category}</small></span><b>{item.qty}</b></div>)}</div><div><h3>做法步骤</h3>{dish.steps.map((step,index)=><div className="detail-step" key={`${step}-${index}`}><span>{index+1}</span><p>{step}</p></div>)}</div></div><div className="dish-note"><div><h3>给对方留言</h3>{note&&<small>{actorNames[note.author]} · {formatRelative(note.updatedAt)}</small>}</div><textarea value={noteText} onChange={event=>setNoteText(event.target.value)} placeholder="例如：少辣、不要香菜，或者今晚想多做一点…"/><button className="ghost" onClick={()=>onSaveNote(noteText)}>保存留言</button></div><div className="modal-actions"><button className="danger-text" onClick={onDelete}>删除菜谱</button><button className={ordered?"primary ordered":"primary"} onClick={onOrder}>{ordered?"✓ 已加入今晚菜单":"＋ 今晚吃这个"}</button></div></div></section></div>;
+}
+
+function RecipeEditor({role,dish,onClose,onSave}:{role:Actor;dish?:Dish;onClose:()=>void;onSave:(dish:Dish)=>void}) {
+  const [name,setName] = useState(dish?.name ?? "");
+  const [desc,setDesc] = useState(dish?.desc ?? "");
+  const [emoji,setEmoji] = useState(dish?.emoji ?? "🍳");
+  const [imageUrl,setImageUrl] = useState(dish?.imageUrl ?? "");
+  const [minutes,setMinutes] = useState(String(dish?.minutes ?? 30));
+  const [calories,setCalories] = useState(String(dish?.calories ?? 400));
+  const [protein,setProtein] = useState(String(dish?.protein ?? 20));
+  const [cost,setCost] = useState(String(dish?.cost ?? 10));
+  const [tags,setTags] = useState(dish?.tags.join("、") ?? "快手、家常");
+  const [ingredients,setIngredients] = useState(dish?.ingredients.map(item=>`${item.name} | ${item.qty} | ${item.category}`).join("\n") ?? "");
+  const [steps,setSteps] = useState(dish?.steps.join("\n") ?? "");
+  const [uploading,setUploading] = useState(false);
+  const [error,setError] = useState("");
+
+  const upload = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    const formData = new FormData();
+    formData.append("file",file);
+    try {
+      const response = await fetch("/api/images",{method:"POST",body:formData});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "图片上传失败");
+      setImageUrl(data.url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "图片上传失败");
+    } finally {
+      setUploading(false);
+    }
+  };
+  const submit = () => {
+    const parsedIngredients = ingredients.split("\n").map(line=>line.split("|").map(part=>part.trim())).filter(parts=>parts[0]).map(parts=>({name:parts[0],qty:parts[1]||"适量",category:parts[2]||"其他"}));
+    const parsedSteps = steps.split("\n").map(line=>line.trim()).filter(Boolean);
+    if (!name.trim() || !parsedIngredients.length || !parsedSteps.length) {
+      setError("请填写菜名，并至少添加一种食材和一个步骤。");
+      return;
+    }
+    const stamp = new Date().toISOString();
+    onSave({
+      id: dish?.id ?? `dish-${crypto.randomUUID()}`,
+      name:name.trim(), desc:desc.trim()||"我们的家庭菜谱", emoji:emoji.trim()||"🍳", imageUrl:imageUrl||undefined,
+      tone:dish?.tone ?? ["sunset","pepper","salmon","tofu","chicken","garden"][Math.floor(Math.random()*6)],
+      minutes:Number(minutes)||30, calories:Number(calories)||0, protein:Number(protein)||0, cost:Number(cost)||0,
+      tags:tags.split(/[、,，]/).map(item=>item.trim()).filter(Boolean).slice(0,4), ingredients:parsedIngredients, steps:parsedSteps,
+      createdBy:dish?.createdBy ?? role, updatedBy:role, updatedAt:stamp,
+    });
+  };
+
+  return <div className="modal-backdrop" role="presentation"><section className="recipe-modal editor-modal" role="dialog" aria-modal="true" aria-labelledby="editor-title"><button className="modal-close" onClick={onClose} aria-label="关闭">×</button><div className="editor-heading"><p className="eyebrow">RECIPE BOOK</p><h2 id="editor-title">{dish?"编辑菜谱":"添加新菜谱"}</h2><p>图片、食材和步骤都会保存到你们共享的家庭厨房。</p></div><div className="editor-grid"><label className="image-upload"><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event=>upload(event.target.files?.[0])}/>{imageUrl?<Image src={imageUrl} alt="菜谱图片预览" fill sizes="280px" className="dish-photo"/>:<span>{uploading?"上传中…":"＋ 上传成品图片\nJPG / PNG / WebP · 最大 5MB"}</span>}<i>{uploading?"请稍候":"点击更换图片"}</i></label><div className="form-fields"><label>菜名<input value={name} onChange={event=>setName(event.target.value)} placeholder="例如：可乐鸡翅"/></label><div className="form-row"><label>Emoji<input value={emoji} onChange={event=>setEmoji(event.target.value)} maxLength={4}/></label><label>一句话介绍<input value={desc} onChange={event=>setDesc(event.target.value)} placeholder="甜咸入味 · 新手友好"/></label></div><div className="form-row four"><label>时间<input type="number" min="1" value={minutes} onChange={event=>setMinutes(event.target.value)}/><small>分钟</small></label><label>热量<input type="number" min="0" value={calories} onChange={event=>setCalories(event.target.value)}/><small>kcal</small></label><label>蛋白质<input type="number" min="0" value={protein} onChange={event=>setProtein(event.target.value)}/><small>g</small></label><label>成本<input type="number" min="0" step="0.1" value={cost} onChange={event=>setCost(event.target.value)}/><small>$</small></label></div><label>标签<input value={tags} onChange={event=>setTags(event.target.value)} placeholder="快手、高蛋白、下饭"/></label></div></div><div className="editor-textareas"><label>食材清单 <small>每行：食材 | 数量 | 分类</small><textarea value={ingredients} onChange={event=>setIngredients(event.target.value)} placeholder={"鸡翅 | 8 个 | 肉类\n可乐 | 1 罐 | 调味"}/></label><label>做法步骤 <small>每行一个步骤</small><textarea value={steps} onChange={event=>setSteps(event.target.value)} placeholder={"鸡翅洗净并划两刀\n煎至两面金黄\n加入可乐焖煮收汁"}/></label></div>{error&&<p className="form-error">{error}</p>}<div className="editor-actions"><button className="ghost" onClick={onClose}>取消</button><button className="primary" disabled={uploading} onClick={submit}>{dish?"保存修改":"加入家庭菜谱"}</button></div></section></div>;
+}
+
+function Empty({icon,title,text}:{icon:string;title:string;text:string}) { return <div className="empty"><span>{icon}</span><h2>{title}</h2><p>{text}</p></div>; }
+
+function Wishlist({dishes,moveToOrder,remove,onOpen}:{dishes:Dish[];moveToOrder:(dish:Dish)=>void;remove:(dish:Dish)=>void;onOpen:(dish:Dish)=>void}) { return dishes.length?<div className="list-stack top-space">{dishes.map(dish=><article className="wish-row" key={dish.id}><button className="mini-visual-button" onClick={()=>onOpen(dish)}><DishVisual dish={dish} className="mini-visual"/></button><button className="wish-copy" onClick={()=>onOpen(dish)}><h3>{dish.name}</h3><p>{dish.desc} · {dish.minutes} 分钟</p></button><div className="row-actions"><button className="ghost" onClick={()=>remove(dish)}>移除</button><button className="primary" onClick={()=>moveToOrder(dish)}>今晚吃</button></div></article>)}</div>:<Empty icon="♡" title="想吃清单还是空的" text="看到喜欢的菜，点一下爱心就会留在这里。"/>; }
+
+function Shopping({items,checked,actors,toggle,onCook,confirmed}:{items:{name:string;qty:string;category:string;forDish:string[]}[];checked:string[];actors:Record<string,Actor>;toggle:(id:string)=>void;onCook:()=>void;confirmed:boolean}) { if(!confirmed)return <Empty icon="🧺" title="先确认今晚菜单" text="确认后，会自动扣除家中库存并合并需要购买的食材。"/>;const done=items.filter(item=>checked.includes(item.name)).length;return <><div className="progress-card top-space"><div><b>{done}/{items.length} 已买</b><span>两个人的进度每 5 秒自动同步</span></div><div className="progress"><i style={{width:`${items.length?done/items.length*100:100}%`}}/></div></div><div className="shopping-grid">{["肉类","海鲜","蔬菜","水果","蛋奶","豆制品","调味","其他"].map(category=>{const group=items.filter(item=>item.category===category);return group.length?<section className="shopping-group" key={category}><h3>{category}</h3>{group.map(item=><label className={checked.includes(item.name)?"check-row checked":"check-row"} key={item.name}><input type="checkbox" checked={checked.includes(item.name)} onChange={()=>toggle(item.name)}/><span className="fake-check">✓</span><span><b>{item.name}</b><small>{checked.includes(item.name)&&actors[item.name]?`${actorNames[actors[item.name]]}买到了 · `:""}{item.forDish.join("、")}</small></span><em>{item.qty}</em></label>)}</section>:null})}</div><button className="wide-action" onClick={onCook}>东西齐了，开始做饭 →</button></>; }
+
+function Cook({chosen,completed,toggle}:{chosen:Dish[];completed:string[];toggle:(id:string)=>void}) { if(!chosen.length)return <Empty icon="♨" title="今晚还没选菜" text="先去菜单点菜，SOP 会按火候和时间自动排好。"/>;const total=chosen.reduce((sum,dish)=>sum+dish.steps.length,0);return <><div className="cook-overview top-space"><div><span>⏱</span><p><b>预计 {Math.max(...chosen.map(dish=>dish.minutes))+8} 分钟</b><small>{chosen.length} 道菜 · 先备菜，再集中开火</small></p></div><strong>{completed.length}/{total}</strong></div><div className="timeline">{chosen.map((dish,dishIndex)=><section className="cook-dish" key={dish.id}><div className={`cook-icon ${dish.tone}`}>{dish.emoji}</div><div className="cook-content"><h2>{dish.name}<span>{dish.minutes} 分钟</span></h2>{dish.steps.map((step,index)=>{const number=chosen.slice(0,dishIndex).reduce((sum,item)=>sum+item.steps.length,0)+index+1;const id=`${dish.id}-${index}`;return <label className={completed.includes(id)?"step done":"step"} key={id}><input type="checkbox" checked={completed.includes(id)} onChange={()=>toggle(id)}/><span>{number}</span><p>{step}</p></label>})}</div></section>)}</div>{completed.length===total&&<div className="celebrate">🎉 <b>全部完成，开饭啦！</b></div>}</>; }
+
+function Inventory({items,remove,add}:{items:InventoryItem[];remove:(id:string)=>void;add:(item:InventoryItem)=>void}) { const [adding,setAdding]=useState(false);const [name,setName]=useState("");const [amount,setAmount]=useState("");const submit=()=>{if(!name.trim())return;add({id:`custom-${Date.now()}`,name:name.trim(),amount:amount.trim()||"1 份",category:"其他",daysLeft:7,icon:"🥕"});setName("");setAmount("");setAdding(false)};return <><div className="inventory-summary top-space"><span><b>{items.length}</b> 种食材</span><span><b>{items.filter(item=>item.daysLeft<=3).length}</b> 项快到期</span><button onClick={()=>setAdding(!adding)}>{adding?"收起":"＋ 添加食材"}</button></div>{adding&&<div className="add-inventory"><input aria-label="食材名称" placeholder="食材名称，例如：胡萝卜" value={name} onChange={event=>setName(event.target.value)}/><input aria-label="食材数量" placeholder="数量，例如：3 根" value={amount} onChange={event=>setAmount(event.target.value)}/><button onClick={submit} disabled={!name.trim()}>加入库存</button></div>}<div className="inventory-grid">{items.map(item=><article className="inventory-card" key={item.id}><span>{item.icon}</span><div><h3>{item.name}</h3><p>{item.amount} · {item.category}</p><small className={item.daysLeft<=3?"urgent":""}>{item.daysLeft<=3?`⚠ ${item.daysLeft} 天内吃掉`:`保质期约 ${item.daysLeft} 天`}</small></div><button aria-label={`删除${item.name}`} onClick={()=>remove(item.id)}>×</button></article>)}</div><div className="inventory-tip"><span>💡</span><p><b>今晚优先建议</b>菠菜快到期了，下次推荐会优先出现菠菜相关菜品。</p></div></>; }
+
+function Stats({chosen}:{chosen:Dish[]}) { const calories=chosen.reduce((sum,dish)=>sum+dish.calories,0);const protein=chosen.reduce((sum,dish)=>sum+dish.protein,0);const cost=chosen.reduce((sum,dish)=>sum+dish.cost,0);return <><div className="stat-grid top-space"><article><span>本月做饭</span><b>12 <small>顿</small></b><p>比上月多 3 顿</p></article><article><span>本月食材</span><b>$186</b><p>预算 $260 · 剩余 $74</p></article><article><span>减少浪费</span><b>7 <small>份</small></b><p>及时吃掉快到期食材</p></article></div><section className="budget-card"><div><p className="eyebrow">MONTHLY BUDGET</p><h2>八月厨房预算</h2><p>目前使用 72%，按这个节奏刚刚好。</p></div><div className="budget-ring"><span><b>72%</b><small>$186 / $260</small></span></div></section><section className="nutrition-card"><div><h2>今晚营养预估</h2><p>按两人份计算，仅供日常参考</p></div><div className="macro"><span><b>{calories}</b> kcal</span><span><b>{protein}g</b> 蛋白质</span><span><b>${cost.toFixed(0)}</b> 预计成本</span></div></section></>; }
+
+function formatRelative(value: string) {
+  const elapsed = Date.now() - new Date(value).getTime();
+  const minutes = Math.max(0,Math.floor(elapsed/60000));
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes/60);
+  if (hours < 24) return `${hours} 小时前`;
+  return new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric"}).format(new Date(value));
+}
