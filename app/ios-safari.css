@@ -1,0 +1,110 @@
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--cream);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.app-shell.app-shell {
+  min-height: 100dvh;
+}
+
+@media (max-width: 720px) {
+  body .topbar {
+    height: calc(66px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+  }
+
+  body .content {
+    padding-right: max(15px, env(safe-area-inset-right));
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+    padding-left: max(15px, env(safe-area-inset-left));
+  }
+
+  body .filter-row {
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+
+  body .filter-row .filter {
+    min-height: 44px;
+    scroll-snap-align: start;
+  }
+
+  body .mobile-nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    min-height: calc(64px + env(safe-area-inset-bottom));
+    padding: 5px max(6px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+  }
+
+  body .mobile-nav button {
+    min-width: 0;
+    min-height: 54px;
+    padding: 5px 2px;
+    border: 0;
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    color: #81796f;
+  }
+
+  body .mobile-nav button span {
+    font-size: 19px;
+    line-height: 1;
+  }
+
+  body .mobile-nav button small {
+    display: block;
+    max-width: 100%;
+    font-size: 11px;
+    line-height: 1.2;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  body .mobile-nav button.active {
+    color: var(--sage-dark);
+  }
+
+  body .mobile-nav button.active small {
+    font-weight: 750;
+  }
+
+  body .mobile-nav button:focus-visible {
+    outline: 2px solid var(--sage);
+    outline-offset: -2px;
+    border-radius: 10px;
+  }
+
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  body .modal-backdrop {
+    height: 100dvh;
+  }
+
+  body .recipe-modal {
+    max-height: 92dvh;
+  }
+
+  body .toast {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}

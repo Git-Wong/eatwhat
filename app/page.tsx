@@ -249,7 +249,7 @@ export default function Home() {
         {tab==="stats"&&<Stats chosen={chosen}/>}
       </section>
     </div>
-    <nav className="mobile-nav">{nav.slice(0,5).map(([id,icon,label]) => <button key={id} className={tab===id?"active":""} onClick={() => setTab(id)}><span>{icon}</span>{label.replace("今日","").replace("清单","")}</button>)}</nav>
+    <nav className="mobile-nav" aria-label="主要导航">{nav.slice(0,5).map(([id,icon,label]) => <button key={id} className={tab===id?"active":""} aria-current={tab===id?"page":undefined} onClick={() => setTab(id)}><span aria-hidden="true">{icon}</span><small>{label.replace("今日","").replace("清单","")}</small></button>)}</nav>
     {toast&&<div className="toast" role="status">✓ {toast}</div>}
     {modal?.kind==="batch"&&<AiRecipeImporter existingNames={state.dishes.map(dish=>dish.name)} onClose={()=>setModal(null)} onImport={saveDishBatch}/>}
     {modal?.kind==="create"&&<RecipeEditor role={role} onClose={() => setModal(null)} onSave={dish => saveDish(dish,true)}/>}
