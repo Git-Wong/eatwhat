@@ -1,0 +1,6 @@
+.add-inventory{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--paper)}
+.add-inventory input{min-width:0;border:1px solid var(--line);border-radius:9px;padding:10px 11px;background:#faf7f1;font-size:11px;outline:none}
+.add-inventory input:focus{border-color:var(--sage)}
+.add-inventory button{border:0;border-radius:9px;padding:0 14px;background:var(--sage-dark);color:#fff;font-size:11px;font-weight:700}
+.add-inventory button:disabled{opacity:.45}
+@media(max-width:720px){.add-inventory{grid-template-columns:1fr}.add-inventory button{padding:10px}}
