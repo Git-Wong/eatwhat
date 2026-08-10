@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   actorNames,
@@ -11,9 +12,12 @@ import {
   type InventoryItem,
   type KitchenState,
 } from "@/lib/kitchen";
+import type { GeneratedDish } from "@/lib/recipe-generation";
+
+const AiRecipeImporter = dynamic(()=>import("./ai-recipe-importer"));
 
 type Tab = "menu" | "wishlist" | "shopping" | "cook" | "inventory" | "stats";
-type ModalState = { kind: "detail" | "edit" | "create"; dishId?: string } | null;
+type ModalState = { kind: "detail" | "edit" | "create" | "batch"; dishId?: string } | null;
 
 const nav: [Tab, string, string][] = [["menu","⌂","今日菜单"],["wishlist","♡","想吃清单"],["shopping","🧺","买菜清单"],["cook","♨","做饭 SOP"],["inventory","◫","厨房库存"],["stats","⌁","本月数据"]];
 const filters = ["全部","30分钟内","高蛋白","清淡","下饭"];
@@ -179,6 +183,34 @@ export default function Home() {
     setBatchIds([]);
     setToast(isNew ? "新菜谱已加入菜单" : "菜谱已更新");
   };
+  const saveDishBatch = (generated: GeneratedDish[]) => {
+    const existingNames = new Set(state.dishes.map(dish=>dish.name.trim().toLocaleLowerCase("zh-CN").replace(/\s+/g,"")));
+    const seen = new Set(existingNames);
+    const unique = generated.filter(dish=>{
+      const name = dish.name.trim().toLocaleLowerCase("zh-CN").replace(/\s+/g,"");
+      if (!name||seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    });
+    if (!unique.length) {
+      setToast("没有可加入的新菜谱");
+      return;
+    }
+    const stamp = new Date().toISOString();
+    const tones = ["sunset","pepper","salmon","tofu","chicken","garden"];
+    const dishes: Dish[] = unique.map((dish,index)=>({
+      ...dish,
+      id:`dish-${crypto.randomUUID()}`,
+      tone:tones[index%tones.length],
+      createdBy:role,
+      updatedBy:role,
+      updatedAt:stamp,
+    }));
+    commit(current=>({...current,dishes:[...dishes,...current.dishes]}),`用 AI 批量加入了 ${dishes.length} 道菜谱`);
+    setBatchIds([]);
+    setModal(null);
+    setToast(`已加入 ${dishes.length} 道 AI 菜谱`);
+  };
   const deleteDish = (dish: Dish) => {
     if (!window.confirm(`确定删除「${dish.name}」吗？`)) return;
     commit(current => ({
@@ -209,7 +241,7 @@ export default function Home() {
       <section className="content">
         <div className="welcome-row"><div><p className="eyebrow">OUR HOME · TODAY</p><h1>{title}</h1><p className="lede">{tab==="menu"?"今天你只管点，剩下的交给我。":tab==="cook"?"备菜、开火、出锅，一个步骤都不乱。":"点菜、库存和预算，全部自动串起来。"}</p></div>{tab==="menu"&&<div className="weather-card"><span>☀</span><div><b>24°C</b><small>适合吃点清爽的</small></div></div>}</div>
 
-        {tab==="menu"&&<Menu dishes={visible} allDishes={dishMap} filter={filter} setFilter={value=>{setFilter(value);setBatchIds([])}} state={state} onOpen={dish => setModal({kind:"detail",dishId:dish.id})} onCreate={() => setModal({kind:"create"})} onShuffle={() => setBatchIds(previous => randomSelection(eligible,3,previous))} toggleOrder={dish => toggleList("ordered",dish.id,`${state.ordered.includes(dish.id)?"取消":"点了"}「${dish.name}」`)} toggleWish={dish => toggleList("wishlist",dish.id,`${state.wishlist.includes(dish.id)?"取消收藏":"收藏了"}「${dish.name}」`)} confirmOrder={confirmOrder}/>}
+        {tab==="menu"&&<Menu dishes={visible} allDishes={dishMap} filter={filter} setFilter={value=>{setFilter(value);setBatchIds([])}} state={state} onOpen={dish => setModal({kind:"detail",dishId:dish.id})} onCreate={() => setModal({kind:"create"})} onBatchCreate={() => setModal({kind:"batch"})} onShuffle={() => setBatchIds(previous => randomSelection(eligible,3,previous))} toggleOrder={dish => toggleList("ordered",dish.id,`${state.ordered.includes(dish.id)?"取消":"点了"}「${dish.name}」`)} toggleWish={dish => toggleList("wishlist",dish.id,`${state.wishlist.includes(dish.id)?"取消收藏":"收藏了"}「${dish.name}」`)} confirmOrder={confirmOrder}/>}
         {tab==="wishlist"&&<Wishlist dishes={wanted} onOpen={dish => setModal({kind:"detail",dishId:dish.id})} moveToOrder={dish => commit(current => ({...current,ordered:current.ordered.includes(dish.id)?current.ordered:[...current.ordered,dish.id]}),`把「${dish.name}」加入今晚菜单`)} remove={dish => toggleList("wishlist",dish.id,`取消收藏「${dish.name}」`)}/>}
         {tab==="shopping"&&<Shopping items={shopping} checked={state.checkedShopping} actors={state.shoppingActors} toggle={toggleShopping} onCook={() => setTab("cook")} confirmed={state.confirmed}/>}
         {tab==="cook"&&<Cook chosen={chosen} completed={state.completedSteps} toggle={id => toggleList("completedSteps",id)}/>}
@@ -219,6 +251,7 @@ export default function Home() {
     </div>
     <nav className="mobile-nav">{nav.slice(0,5).map(([id,icon,label]) => <button key={id} className={tab===id?"active":""} onClick={() => setTab(id)}><span>{icon}</span>{label.replace("今日","").replace("清单","")}</button>)}</nav>
     {toast&&<div className="toast" role="status">✓ {toast}</div>}
+    {modal?.kind==="batch"&&<AiRecipeImporter existingNames={state.dishes.map(dish=>dish.name)} onClose={()=>setModal(null)} onImport={saveDishBatch}/>}
     {modal?.kind==="create"&&<RecipeEditor role={role} onClose={() => setModal(null)} onSave={dish => saveDish(dish,true)}/>}
     {modal?.kind==="detail"&&activeDish&&<RecipeDetail dish={activeDish} note={state.dishNotes[activeDish.id]} onClose={() => setModal(null)} onEdit={() => setModal({kind:"edit",dishId:activeDish.id})} onDelete={() => deleteDish(activeDish)} onSaveNote={text => saveNote(activeDish,text)} ordered={state.ordered.includes(activeDish.id)} onOrder={() => toggleList("ordered",activeDish.id,`${state.ordered.includes(activeDish.id)?"取消":"点了"}「${activeDish.name}」`)}/>}
     {modal?.kind==="edit"&&activeDish&&<RecipeEditor role={role} dish={activeDish} onClose={() => setModal({kind:"detail",dishId:activeDish.id})} onSave={dish => saveDish(dish,false)}/>}
@@ -230,8 +263,8 @@ function CollaborationPanel({activity}:{activity:KitchenState["activity"]}) {
   return <div className="collab-panel"><div className="collab-avatars"><span>她</span><span>我</span><i>●</i></div><b>两个人的厨房</b>{latest?<p><strong>{actorNames[latest.actor]}</strong>{latest.action}<small>{formatRelative(latest.at)}</small></p>:<p>点菜、留言和买菜进度会同步显示。</p>}</div>;
 }
 
-function Menu({dishes,allDishes,filter,setFilter,state,onOpen,onCreate,onShuffle,toggleOrder,toggleWish,confirmOrder}:{dishes:Dish[];allDishes:Map<string,Dish>;filter:string;setFilter:(value:string)=>void;state:KitchenState;onOpen:(dish:Dish)=>void;onCreate:()=>void;onShuffle:()=>void;toggleOrder:(dish:Dish)=>void;toggleWish:(dish:Dish)=>void;confirmOrder:()=>void}) {
-  return <><div className="filter-row">{filters.map(item=><button key={item} className={filter===item?"filter active":"filter"} onClick={()=>setFilter(item)}>{item}</button>)}</div>{state.ordered.length>0&&<div className="order-banner"><div><span>✓</span><p><b>今晚已选 {state.ordered.length} 道菜</b><small>{state.ordered.map(id=>allDishes.get(id)?.name??id).join("、")}</small></p></div><button onClick={()=>document.getElementById("summary")?.scrollIntoView({behavior:"smooth"})}>去确认</button></div>}<div className="section-heading"><div><h2>今日推荐</h2><p>共 {state.dishes.length} 道家庭菜谱</p></div><div className="heading-actions"><button className="text-button" onClick={onShuffle}>↻ 随机换一批</button><button className="add-recipe-button" onClick={onCreate}>＋ 新菜谱</button></div></div>{dishes.length?<div className="dish-grid">{dishes.map(dish=><DishCard key={dish.id} dish={dish} ordered={state.ordered.includes(dish.id)} wished={state.wishlist.includes(dish.id)} onOpen={()=>onOpen(dish)} onOrder={()=>toggleOrder(dish)} onWish={()=>toggleWish(dish)}/>)}</div>:<Empty icon="🍽" title="这个分类还没有菜" text="添加一道新菜谱，或者切换其他筛选条件。"/>}<section className="summary-card" id="summary"><div><p className="eyebrow">TONIGHT&apos;S ORDER</p><h2>{state.ordered.length?"今晚菜单已选好":"还没有点菜"}</h2><p>{state.ordered.length?"确认后自动合并食材，生成买菜清单与做饭顺序。":"从上面选一道想吃的菜吧。"}</p></div><div className="summary-dishes">{state.ordered.map(id=><span key={id}>{allDishes.get(id)?.emoji}</span>)}</div><button disabled={!state.ordered.length} onClick={confirmOrder}>{state.ordered.length?"确认今晚菜单 →":"等你点菜"}</button></section></>;
+function Menu({dishes,allDishes,filter,setFilter,state,onOpen,onCreate,onBatchCreate,onShuffle,toggleOrder,toggleWish,confirmOrder}:{dishes:Dish[];allDishes:Map<string,Dish>;filter:string;setFilter:(value:string)=>void;state:KitchenState;onOpen:(dish:Dish)=>void;onCreate:()=>void;onBatchCreate:()=>void;onShuffle:()=>void;toggleOrder:(dish:Dish)=>void;toggleWish:(dish:Dish)=>void;confirmOrder:()=>void}) {
+  return <><div className="filter-row">{filters.map(item=><button key={item} className={filter===item?"filter active":"filter"} onClick={()=>setFilter(item)}>{item}</button>)}</div>{state.ordered.length>0&&<div className="order-banner"><div><span>✓</span><p><b>今晚已选 {state.ordered.length} 道菜</b><small>{state.ordered.map(id=>allDishes.get(id)?.name??id).join("、")}</small></p></div><button onClick={()=>document.getElementById("summary")?.scrollIntoView({behavior:"smooth"})}>去确认</button></div>}<div className="section-heading"><div><h2>今日推荐</h2><p>共 {state.dishes.length} 道家庭菜谱</p></div><div className="heading-actions"><button className="text-button" onClick={onShuffle}>↻ 随机换一批</button><button className="text-button ai-create-button" onClick={onBatchCreate}>✦ AI 批量生成</button><button className="add-recipe-button" onClick={onCreate}>＋ 新菜谱</button></div></div>{dishes.length?<div className="dish-grid">{dishes.map(dish=><DishCard key={dish.id} dish={dish} ordered={state.ordered.includes(dish.id)} wished={state.wishlist.includes(dish.id)} onOpen={()=>onOpen(dish)} onOrder={()=>toggleOrder(dish)} onWish={()=>toggleWish(dish)}/>)}</div>:<Empty icon="🍽" title="这个分类还没有菜" text="添加一道新菜谱，或者切换其他筛选条件。"/>}<section className="summary-card" id="summary"><div><p className="eyebrow">TONIGHT&apos;S ORDER</p><h2>{state.ordered.length?"今晚菜单已选好":"还没有点菜"}</h2><p>{state.ordered.length?"确认后自动合并食材，生成买菜清单与做饭顺序。":"从上面选一道想吃的菜吧。"}</p></div><div className="summary-dishes">{state.ordered.map(id=><span key={id}>{allDishes.get(id)?.emoji}</span>)}</div><button disabled={!state.ordered.length} onClick={confirmOrder}>{state.ordered.length?"确认今晚菜单 →":"等你点菜"}</button></section></>;
 }
 
 function DishVisual({dish,className="dish-visual"}:{dish:Dish;className?:string}) {

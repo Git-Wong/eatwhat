@@ -12,6 +12,8 @@ npm run dev
 
 没有配置数据库时，页面仍可预览，但不会跨设备保存，也不能上传图片。配置 `SUPABASE_URL` 和 `SUPABASE_SECRET_KEY` 后，`/api/state` 会通过 Supabase 保存共享家庭状态；菜谱图片会上传到公开的 `dish-images` Storage bucket（首次上传时自动创建）。`SUPABASE_SECRET_KEY` 仅供服务端 API 使用，不要添加 `NEXT_PUBLIC_` 前缀。
 
+AI 批量生成菜谱使用 DeepSeek API。配置服务端环境变量 `DEEPSEEK_API_KEY` 后，菜单页的“AI 批量生成”会先生成可检查的菜谱草稿，确认后才写入共享状态。模型默认使用 `deepseek-v4-flash`，可通过 `DEEPSEEK_MODEL` 调整；密钥同样不能添加 `NEXT_PUBLIC_` 前缀或提交到仓库。
+
 ## Supabase 初始化
 
 在 Supabase SQL Editor 中执行：
